@@ -16,6 +16,9 @@ const getHeaders = (accessToken) => ({
 /**
  * 1. Sync Customers
  */
+/**
+ * 1. Sync Customers (With Fallbacks for missing names)
+ */
 async function syncCustomers(tenant) {
   try {
     const url = `https://${tenant.shopDomain}/admin/api/${API_VERSION}/customers.json`;
@@ -25,6 +28,11 @@ async function syncCustomers(tenant) {
     console.log(`Found ${customers.length} customers for ${tenant.storeName}`);
 
     for (const cust of customers) {
+      // FIX: Check multiple places for the name, or use "Customer {ID}" as fallback
+      const validFirstName = cust.first_name || (cust.default_address && cust.default_address.first_name) || `Customer`;
+      const validLastName = cust.last_name || (cust.default_address && cust.default_address.last_name) || `${cust.id}`.slice(-4);
+      const validEmail = cust.email || "No Email Provided";
+
       await prisma.customer.upsert({
         where: {
           shopifyCustomerId_tenantId: {
@@ -34,16 +42,16 @@ async function syncCustomers(tenant) {
         },
         update: {
           totalSpent: cust.total_spent,
-          firstName: cust.first_name,
-          lastName: cust.last_name,
-          email: cust.email,
+          firstName: validFirstName,
+          lastName: validLastName,
+          email: validEmail,
         },
         create: {
           shopifyCustomerId: String(cust.id),
           tenantId: tenant.id,
-          email: cust.email,
-          firstName: cust.first_name,
-          lastName: cust.last_name,
+          email: validEmail,
+          firstName: validFirstName,
+          lastName: validLastName,
           totalSpent: cust.total_spent || 0,
         },
       });
@@ -52,7 +60,6 @@ async function syncCustomers(tenant) {
     console.error(`Error syncing customers for ${tenant.storeName}:`, error.message);
   }
 }
-
 /**
  * 2. Sync Products
  */
