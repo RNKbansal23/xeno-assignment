@@ -5,8 +5,9 @@ import axios from "axios";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from "recharts";
+import { RefreshCcw } from "lucide-react"; // <--- 1. NEW IMPORT
 
-// TypeScript Interfaces to define data structure
+// TypeScript Interfaces
 interface Stats {
   totalRevenue: number;
   totalOrders: number;
@@ -37,10 +38,60 @@ export default function Dashboard() {
   const [orders, setOrders] = useState<ChartData[]>([]);
   const [topCustomers, setTopCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false); // <--- 2. NEW STATE
   const [storeName, setStoreName] = useState("");
 
+  // 3. MOVED fetchData OUTSIDE useEffect so we can reuse it
+  const fetchData = async () => {
+    const tenantId = localStorage.getItem("xeno_tenant_id");
+    if (!tenantId) return;
+
+    try {
+      const config = { headers: { "x-tenant-id": tenantId } };
+
+      const [statsRes, ordersRes, custRes] = await Promise.all([
+        axios.get("https://xeno-assignment-x40m.onrender.com/api/stats", config),
+        axios.get("https://xeno-assignment-x40m.onrender.com/api/orders", config),
+        axios.get("https://xeno-assignment-x40m.onrender.com/api/customers/top", config),
+      ]);
+
+      setStats(statsRes.data);
+      
+      const formattedOrders: ChartData[] = ordersRes.data.map((o: OrderData) => ({
+        date: new Date(o.createdAt).toLocaleDateString(),
+        amount: parseFloat(o.totalPrice)
+      }));
+      setOrders(formattedOrders);
+      setTopCustomers(custRes.data);
+    } catch (err) {
+      console.error("Failed to fetch data", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 4. NEW FUNCTION TO HANDLE SYNC
+  const handleSync = async () => {
+    setSyncing(true);
+    const tenantId = localStorage.getItem("xeno_tenant_id");
+    try {
+      // Call the sync endpoint
+      await axios.post("https://xeno-assignment-x40m.onrender.com/api/sync", { tenantId });
+      
+      // Wait 3 seconds for DB to update, then refresh UI
+      setTimeout(() => {
+        fetchData();
+        setSyncing(false);
+        alert("Data Synced Successfully!");
+      }, 3000);
+    } catch (err) {
+      console.error("Sync failed", err);
+      setSyncing(false);
+      alert("Sync failed. Check console.");
+    }
+  };
+
   useEffect(() => {
-    // 1. Check Auth
     const tenantId = localStorage.getItem("xeno_tenant_id");
     const storedName = localStorage.getItem("xeno_store_name");
     
@@ -49,36 +100,7 @@ export default function Dashboard() {
       return;
     }
     setStoreName(storedName || "Store");
-
-    // 2. Fetch Data
-    const fetchData = async () => {
-      try {
-        const config = { headers: { "x-tenant-id": tenantId } };
-
-        const [statsRes, ordersRes, custRes] = await Promise.all([
-          axios.get("https://xeno-assignment-x40m.onrender.com/api/stats", config),
-          axios.get("https://xeno-assignment-x40m.onrender.com/api/orders", config),
-          axios.get("https://xeno-assignment-x40m.onrender.com/api/customers/top", config),
-        ]);
-
-        setStats(statsRes.data);
-        
-        // Format Orders for Chart
-        const formattedOrders: ChartData[] = ordersRes.data.map((o: OrderData) => ({
-          date: new Date(o.createdAt).toLocaleDateString(),
-          amount: parseFloat(o.totalPrice)
-        }));
-        setOrders(formattedOrders);
-        
-        setTopCustomers(custRes.data);
-      } catch (err) {
-        console.error("Failed to fetch data", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
+    fetchData(); // Initial load
   }, [router]);
 
   if (loading) return <div className="flex h-screen items-center justify-center text-black">Loading Dashboard...</div>;
@@ -89,7 +111,20 @@ export default function Dashboard() {
       <nav className="bg-white shadow p-4 flex justify-between items-center">
         <h1 className="text-xl font-bold text-blue-600">Xeno Insights 🚀</h1>
         <div className="flex items-center gap-4">
-          <span className="font-medium">{storeName}</span>
+          <span className="font-medium hidden sm:block">{storeName}</span>
+          
+          {/* 5. THIS IS THE MISSING BUTTON */}
+          <button 
+            onClick={handleSync}
+            disabled={syncing}
+            className={`flex items-center gap-2 px-3 py-1 rounded text-white text-sm transition ${
+              syncing ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
+            }`}
+          >
+            <RefreshCcw size={16} className={syncing ? "animate-spin" : ""} />
+            {syncing ? "Syncing..." : "Sync Data"}
+          </button>
+
           <button 
             onClick={() => { localStorage.clear(); router.push("/"); }}
             className="text-sm text-red-500 hover:underline"
@@ -154,7 +189,6 @@ export default function Dashboard() {
   );
 }
 
-// Simple Card Component
 function Card({ title, value, color }: { title: string, value: string | number, color: string }) {
   return (
     <div className={`p-6 rounded-lg shadow ${color}`}>
