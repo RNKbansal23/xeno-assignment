@@ -1,0 +1,78 @@
+// server/prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 1. The Tenant (Store) Model
+// This allows your app to serve multiple Shopify stores securely.
+model Tenant {
+  id          String   @id @default(uuid()) // Internal ID
+  storeName   String   // e.g. "Rnk Fashion"
+  shopDomain  String   @unique // e.g. "rnk-test.myshopify.com"
+  accessToken String   // The Sensitive API Token you copied
+  password    String   @default("xeno123")
+  
+  // Relations - One Tenant has many orders, products, etc.
+  customers   Customer[]
+  products    Product[]
+  orders      Order[]
+
+  createdAt   DateTime @default(now())
+}
+
+// 2. Customers Model
+model Customer {
+  id                String   @id @default(uuid())
+  shopifyCustomerId String   // The ID from Shopify (BigInt as String)
+  email             String?
+  firstName         String?
+  lastName          String?
+  totalSpent        Decimal  @default(0.0) // Metric for dashboard
+  
+  // Multi-tenancy Link
+  tenantId          String
+  tenant            Tenant   @relation(fields: [tenantId], references: [id])
+  
+  orders            Order[]
+
+  @@unique([shopifyCustomerId, tenantId]) // Prevent duplicates per store
+}
+
+// 3. Products Model
+model Product {
+  id               String   @id @default(uuid())
+  shopifyProductId String
+  title            String
+  
+  // Multi-tenancy Link
+  tenantId         String
+  tenant           Tenant   @relation(fields: [tenantId], references: [id])
+
+  @@unique([shopifyProductId, tenantId])
+}
+
+// 4. Orders Model
+model Order {
+  id             String   @id @default(uuid())
+  shopifyOrderId String
+  totalPrice     Decimal  @default(0.0)
+  currency       String   @default("INR")
+  
+  // Relations
+  customerId     String?
+  customer       Customer? @relation(fields: [customerId], references: [id])
+  
+  // Multi-tenancy Link
+  tenantId       String
+  tenant         Tenant    @relation(fields: [tenantId], references: [id])
+
+  createdAt      DateTime // Use Shopify's created_at, not our own
+  
+  @@unique([shopifyOrderId, tenantId])
+}
