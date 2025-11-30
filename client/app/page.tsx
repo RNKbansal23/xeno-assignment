@@ -15,7 +15,7 @@ export default function Login() {
 
     try {
       // Connect to your Backend
-      const res = await axios.post("http://localhost:5000/api/login", {
+      const res = await axios.post("https://xeno-assignment-x40m.onrender.com/api/login", {
         shopDomain: domain,
         password: password,
       });

@@ -56,9 +56,9 @@ export default function Dashboard() {
         const config = { headers: { "x-tenant-id": tenantId } };
 
         const [statsRes, ordersRes, custRes] = await Promise.all([
-          axios.get("http://localhost:5000/api/stats", config),
-          axios.get("http://localhost:5000/api/orders", config),
-          axios.get("http://localhost:5000/api/customers/top", config),
+          axios.get("https://xeno-assignment-x40m.onrender.com/api/stats", config),
+          axios.get("https://xeno-assignment-x40m.onrender.com/api/orders", config),
+          axios.get("https://xeno-assignment-x40m.onrender.com/api/customers/top", config),
         ]);
 
         setStats(statsRes.data);
