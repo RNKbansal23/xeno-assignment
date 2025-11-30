@@ -1,23 +1,22 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
+const { syncAllData } = require('./services/shopify'); // <--- 1. IMPORT ADDED
 const router = express.Router();
 const prisma = new PrismaClient();
 
 // --- MIDDLEWARE: Mock Authentication ---
-// In a real app, use JWT. For this assignment, we pass 'x-tenant-id' header.
 const requireAuth = async (req, res, next) => {
   const tenantId = req.headers['x-tenant-id'];
   if (!tenantId) {
     return res.status(401).json({ error: 'Unauthorized: Missing Tenant ID' });
   }
   
-  // Verify tenant exists
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
   if (!tenant) {
     return res.status(401).json({ error: 'Invalid Tenant' });
   }
 
-  req.tenantId = tenantId; // Attach to request for isolation
+  req.tenantId = tenantId;
   next();
 };
 
@@ -25,7 +24,6 @@ const requireAuth = async (req, res, next) => {
 router.post('/login', async (req, res) => {
   const { shopDomain, password } = req.body;
   
-  // Simple check (Plain text for assignment speed, use bcrypt in production)
   const tenant = await prisma.tenant.findUnique({ 
     where: { shopDomain } 
   });
@@ -34,7 +32,6 @@ router.post('/login', async (req, res) => {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 
-  // Return the ID to be used as a token on the frontend
   res.json({ 
     message: 'Login successful', 
     tenantId: tenant.id,
@@ -42,21 +39,30 @@ router.post('/login', async (req, res) => {
   });
 });
 
-// --- 2. STATS API (Total Sales, Order Count, Customer Count) ---
+// --- 2. SYNC API (The Missing Part) ---
+router.post('/sync', async (req, res) => {
+  const { tenantId } = req.body;
+  if (!tenantId) return res.status(400).json({ error: 'Tenant ID required' });
+  
+  console.log(`⚡ Manual Sync Triggered for ${tenantId}`);
+  
+  // Trigger the sync service
+  // We don't await this so the UI returns immediately
+  syncAllData(tenantId).catch(err => console.error(err));
+
+  res.json({ message: 'Sync started successfully' });
+});
+
+// --- 3. STATS API ---
 router.get('/stats', requireAuth, async (req, res) => {
   try {
-    // 1. Total Revenue
     const revenueAgg = await prisma.order.aggregate({
       _sum: { totalPrice: true },
-      where: { tenantId: req.tenantId } // <--- ISOLATION
+      where: { tenantId: req.tenantId }
     });
-
-    // 2. Total Orders
     const totalOrders = await prisma.order.count({
       where: { tenantId: req.tenantId }
     });
-
-    // 3. Total Customers
     const totalCustomers = await prisma.customer.count({
       where: { tenantId: req.tenantId }
     });
@@ -71,26 +77,12 @@ router.get('/stats', requireAuth, async (req, res) => {
   }
 });
 
-// --- 3. ORDERS API (With Date Filtering) ---
+// --- 4. ORDERS API ---
 router.get('/orders', requireAuth, async (req, res) => {
-  const { startDate, endDate } = req.query;
-
-  // Build Filter Object
-  let dateFilter = {};
-  if (startDate && endDate) {
-    dateFilter = {
-      gte: new Date(startDate),
-      lte: new Date(endDate),
-    };
-  }
-
   try {
     const orders = await prisma.order.findMany({
-      where: {
-        tenantId: req.tenantId, // <--- ISOLATION
-        createdAt: Object.keys(dateFilter).length > 0 ? dateFilter : undefined
-      },
-      include: { customer: true }, // Join customer data
+      where: { tenantId: req.tenantId },
+      include: { customer: true },
       orderBy: { createdAt: 'desc' }
     });
     res.json(orders);
@@ -99,13 +91,13 @@ router.get('/orders', requireAuth, async (req, res) => {
   }
 });
 
-// --- 4. TOP CUSTOMERS API ---
+// --- 5. TOP CUSTOMERS API ---
 router.get('/customers/top', requireAuth, async (req, res) => {
   try {
     const topCustomers = await prisma.customer.findMany({
       where: { tenantId: req.tenantId },
       orderBy: { totalSpent: 'desc' },
-      take: 5 // Limit to top 5
+      take: 5
     });
     res.json(topCustomers);
   } catch (error) {
